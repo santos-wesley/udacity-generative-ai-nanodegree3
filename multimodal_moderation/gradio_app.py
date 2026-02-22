@@ -260,8 +260,11 @@ class ChatSessionWithTracing:
                         feedback = f"⚠️ Content flagged: {safety_message}"
                         response = "[This content was flagged by moderation and not sent to the AI. Please try again.]"
 
-                        # Set feedback attribute in the tracing span
-                        span.set_attribute("feedback", feedback)
+                        # Create a dedicated "feedback" span for observability
+                        with tracer.start_as_current_span("feedback") as feedback_span:
+                            feedback_span.set_attribute("feedback.content", feedback)
+                            feedback_span.set_attribute("feedback.is_safe", False)
+                            feedback_span.set_attribute("feedback.content_type", "text")
 
                         return response, past_messages, feedback
 
@@ -285,6 +288,12 @@ class ChatSessionWithTracing:
                                     "[This content was flagged by moderation and not sent to the AI. Please try again.]"
                                 )
 
+                                # Create a dedicated "feedback" span for observability
+                                with tracer.start_as_current_span("feedback") as feedback_span:
+                                    feedback_span.set_attribute("feedback.content", feedback)
+                                    feedback_span.set_attribute("feedback.is_safe", False)
+                                    feedback_span.set_attribute("feedback.content_type", mime_type)
+
                                 return response, past_messages, feedback
 
                             # Content safe - read file and add to prompt
@@ -300,6 +309,11 @@ class ChatSessionWithTracing:
 
             if not prompt_parts:
                 raise gr.Error("Please provide a message or at least one file.")
+
+            # Record feedback for content that passed moderation
+            with tracer.start_as_current_span("feedback") as feedback_span:
+                feedback_span.set_attribute("feedback.content", safety_message if safety_message else "No issues detected")
+                feedback_span.set_attribute("feedback.is_safe", True)
 
             # All content passed moderation - send to AI customer
             try:
